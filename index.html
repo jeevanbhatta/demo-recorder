@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Recorder - Screen & Video Recording</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%236366f1'/><circle cx='50' cy='50' r='20' fill='white'/><circle cx='50' cy='50' r='15' fill='%236366f1'/></svg>">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 Demo Recorder</h1>
+            <p>Record your screen with customizable webcam overlay</p>
+        </header>
+
+        <main>
+            <!-- Preview Section -->
+            <div class="preview-section">
+                <div class="preview-container" id="previewContainer">
+                    <canvas id="compositeCanvas"></canvas>
+                    <div class="status-indicator" id="statusIndicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Ready to Record</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls Section -->
+            <div class="controls-section">
+                <!-- Recording Controls -->
+                <div class="control-group recording-controls">
+                    <h3>Recording Controls</h3>
+                    <div class="button-group">
+                        <button id="startBtn" class="btn btn-primary">
+                            <span class="btn-icon">▶️</span> <span class="btn-text">Start</span>
+                        </button>
+                        <button id="pauseBtn" class="btn btn-secondary" disabled>
+                            <span class="btn-icon">⏸️</span> <span class="btn-text">Pause</span>
+                        </button>
+                        <button id="stopBtn" class="btn btn-danger" disabled>
+                            <span class="btn-icon">⏹️</span> <span class="btn-text">Stop</span>
+                        </button>
+                    </div>
+                    <div class="recording-timer" id="recordingTimer">00:00</div>
+                </div>
+
+                <!-- Webcam Position -->
+                <div class="control-group">
+                    <h3>📍 Webcam Position</h3>
+                    <div class="position-grid">
+                        <button class="position-btn" data-position="top-left">↖️</button>
+                        <button class="position-btn" data-position="top-center">⬆️</button>
+                        <button class="position-btn" data-position="top-right">↗️</button>
+                        <button class="position-btn" data-position="middle-left">⬅️</button>
+                        <button class="position-btn" data-position="middle-center">⏺️</button>
+                        <button class="position-btn" data-position="middle-right">➡️</button>
+                        <button class="position-btn" data-position="bottom-left">↙️</button>
+                        <button class="position-btn" data-position="bottom-center">⬇️</button>
+                        <button class="position-btn active" data-position="bottom-right">↘️</button>
+                    </div>
+                </div>
+
+                <!-- Webcam Shape -->
+                <div class="control-group">
+                    <h3>🔷 Webcam Shape</h3>
+                    <div class="shape-options">
+                        <button class="shape-btn active" data-shape="circle">
+                            <div class="shape-preview circle"></div>
+                            Circle
+                        </button>
+                        <button class="shape-btn" data-shape="rounded">
+                            <div class="shape-preview rounded"></div>
+                            Rounded
+                        </button>
+                        <button class="shape-btn" data-shape="square">
+                            <div class="shape-preview square"></div>
+                            Square
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Webcam Size -->
+                <div class="control-group">
+                    <h3>📏 Webcam Size</h3>
+                    <div class="slider-container">
+                        <label for="sizeSlider">Size: <span id="sizeValue">20%</span></label>
+                        <input type="range" id="sizeSlider" min="10" max="40" value="20" step="1">
+                    </div>
+                </div>
+
+                <!-- Audio Options -->
+                <div class="control-group">
+                    <h3>🎤 Audio Settings</h3>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="systemAudioCheck" checked>
+                            <span>System Audio</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="micAudioCheck" checked>
+                            <span>Microphone</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Additional Options -->
+                <div class="control-group">
+                    <h3>⚙️ Options</h3>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="showWebcamCheck" checked>
+                            <span>Show Webcam</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="webcamBorderCheck" checked>
+                            <span>Webcam Border</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Recordings List -->
+        <div class="recordings-section" id="recordingsSection" style="display: none;">
+            <h3>📹 Your Recordings</h3>
+            <div id="recordingsList" class="recordings-list"></div>
+        </div>
+
+        <footer>
+            <p>Press Start Recording to begin. Your browser will ask for screen and camera permissions.</p>
+        </footer>
+    </div>
+
+    <!-- Hidden video elements for streams -->
+    <video id="screenVideo" style="display: none;" autoplay muted></video>
+    <video id="webcamVideo" style="display: none;" autoplay muted></video>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
