@@ -1,0 +1,22 @@
+{
+  "name": "demo-recorder",
+  "version": "1.0.0",
+  "description": "A modern screen recording application with customizable webcam overlay",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server -p 8000 -o"
+  },
+  "keywords": [
+    "screen-recording",
+    "webcam",
+    "video",
+    "recorder",
+    "demo"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
+
