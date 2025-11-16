@@ -481,11 +481,33 @@ async function togglePictureInPicture() {
                 elements.pipBtn.innerHTML = '<span class="btn-icon">📺</span> <span class="btn-text">Show PiP</span>';
             }
         } else {
+            // Check if we already have a PiP video element
+            if (state.pipVideo) {
+                await state.pipVideo.requestPictureInPicture();
+                if (elements.pipBtn) {
+                    elements.pipBtn.innerHTML = '<span class="btn-icon">📺</span> <span class="btn-text">Hide PiP</span>';
+                }
+                return;
+            }
+            
             // Create a video element from the canvas stream to show in PiP
             const pipVideo = document.createElement('video');
             pipVideo.srcObject = elements.canvas.captureStream(30);
             pipVideo.muted = true;
-            pipVideo.play();
+            
+            // Wait for metadata to load before requesting PiP
+            await new Promise((resolve, reject) => {
+                pipVideo.onloadedmetadata = resolve;
+                pipVideo.onerror = reject;
+                // Start playing to trigger metadata load
+                pipVideo.play().catch(reject);
+                
+                // Timeout after 5 seconds
+                setTimeout(() => reject(new Error('Timeout waiting for video metadata')), 5000);
+            });
+            
+            // Small delay to ensure video is ready
+            await new Promise(resolve => setTimeout(resolve, 100));
             
             await pipVideo.requestPictureInPicture();
             if (elements.pipBtn) {
@@ -494,10 +516,21 @@ async function togglePictureInPicture() {
             
             // Store reference for cleanup
             state.pipVideo = pipVideo;
+            
+            // Handle PiP window close
+            pipVideo.addEventListener('leavepictureinpicture', () => {
+                if (elements.pipBtn) {
+                    elements.pipBtn.innerHTML = '<span class="btn-icon">📺</span> <span class="btn-text">Show PiP</span>';
+                }
+            });
         }
     } catch (err) {
         console.error('Picture-in-Picture error:', err);
-        alert('Picture-in-Picture is not supported or was denied.');
+        if (err.message.includes('Timeout')) {
+            alert('Picture-in-Picture could not start. Please make sure recording has started first.');
+        } else {
+            alert('Picture-in-Picture is not supported in this browser or was denied.');
+        }
     }
 }
 
