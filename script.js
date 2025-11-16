@@ -9,6 +9,7 @@ const state = {
     isPaused: false,
     startTime: null,
     timerInterval: null,
+    compositingInterval: null,
     settings: {
         position: 'bottom-right',
         shape: 'circle',
@@ -49,6 +50,21 @@ function init() {
     setupEventListeners();
     updateCanvasSize();
     window.addEventListener('resize', updateCanvasSize);
+    
+    // Monitor page visibility to help with background recording
+    document.addEventListener('visibilitychange', () => {
+        if (state.isRecording) {
+            if (document.hidden) {
+                console.log('Tab hidden - recording continues in background');
+                // Force a few frames to keep stream active
+                if (state.compositingInterval) {
+                    console.log('Compositing interval still active');
+                }
+            } else {
+                console.log('Tab visible - recording active');
+            }
+        }
+    });
 }
 
 // Setup event listeners
@@ -207,15 +223,18 @@ async function startRecording() {
         const canvasStream = elements.canvas.captureStream(30);
         audioTracks.forEach(track => canvasStream.addTrack(track));
         
-        // Start recording
+        // Start recording with higher quality settings
         const options = {
             mimeType: 'video/webm;codecs=vp9,opus',
-            videoBitsPerSecond: 5000000
+            videoBitsPerSecond: 8000000 // Increased bitrate for better quality
         };
         
         // Fallback for Safari/browsers that don't support vp9
         if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-            options.mimeType = 'video/webm';
+            options.mimeType = 'video/webm;codecs=vp8,opus';
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options.mimeType = 'video/webm';
+            }
         }
         
         state.mediaRecorder = new MediaRecorder(canvasStream, options);
@@ -232,7 +251,7 @@ async function startRecording() {
         
         state.mediaRecorder.onstop = handleRecordingStop;
         
-        state.mediaRecorder.start(1000); // Collect data every second
+        state.mediaRecorder.start(100); // Collect data more frequently
         console.log('MediaRecorder started. State:', state.mediaRecorder.state);
         console.log('Canvas stream tracks:', canvasStream.getTracks().map(t => `${t.kind}: ${t.enabled}`));
         
@@ -257,143 +276,149 @@ async function startRecording() {
 // Start compositing video streams
 function startCompositing() {
     console.log('Starting compositing...');
-    let lastFrameTime = Date.now();
     const targetFPS = 30;
     const frameInterval = 1000 / targetFPS;
+    let lastFrameTime = performance.now();
+    let frameCount = 0;
     
     function draw() {
         if (!state.isRecording && !state.isPaused) {
+            if (state.compositingInterval) {
+                clearInterval(state.compositingInterval);
+                state.compositingInterval = null;
+            }
             return;
         }
         
-        const now = Date.now();
+        const now = performance.now();
         const elapsed = now - lastFrameTime;
         
-        // Ensure consistent frame rate
-        if (elapsed >= frameInterval) {
-            lastFrameTime = now - (elapsed % frameInterval);
-            
-            // Clear canvas
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, elements.canvas.width, elements.canvas.height);
-            
-            // Draw screen video
-            try {
-                if (elements.screenVideo.readyState >= 2) { // HAVE_CURRENT_DATA or better
-                    ctx.drawImage(elements.screenVideo, 0, 0, elements.canvas.width, elements.canvas.height);
-                }
-            } catch (err) {
-                console.error('Error drawing screen:', err);
+        // Track frame rate for debugging
+        frameCount++;
+        if (frameCount % 60 === 0) {
+            console.log('Compositing active, frames:', frameCount, 'FPS:', Math.round(1000 / elapsed));
+        }
+        
+        lastFrameTime = now;
+        
+        // Clear canvas
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, elements.canvas.width, elements.canvas.height);
+        
+        // Draw screen video
+        try {
+            if (elements.screenVideo.readyState >= 2) { // HAVE_CURRENT_DATA or better
+                ctx.drawImage(elements.screenVideo, 0, 0, elements.canvas.width, elements.canvas.height);
             }
-            
-            // Draw webcam if enabled
-            if (state.settings.showWebcam && state.webcamStream && elements.webcamVideo.readyState >= 2) {
-                try {
-                    const webcamSize = (elements.canvas.width * state.settings.size) / 100;
-                    let webcamWidth = webcamSize;
-                    let webcamHeight = webcamSize;
+        } catch (err) {
+            console.error('Error drawing screen:', err);
+        }
+        
+        // Draw webcam if enabled
+        if (state.settings.showWebcam && state.webcamStream && elements.webcamVideo.readyState >= 2) {
+            try {
+                const webcamSize = (elements.canvas.width * state.settings.size) / 100;
+                let webcamWidth = webcamSize;
+                let webcamHeight = webcamSize;
+                
+                // For circle shape, keep it square (equal width and height)
+                // For other shapes, use aspect ratio
+                if (state.settings.shape !== 'circle') {
+                    webcamHeight = webcamSize * (9/16); // Maintain 16:9 aspect ratio
+                }
+                
+                const position = calculateWebcamPosition(webcamWidth, webcamHeight);
+                
+                // Save context state
+                ctx.save();
+                
+                // Create clipping path based on shape
+                ctx.beginPath();
+                switch (state.settings.shape) {
+                    case 'circle':
+                        ctx.arc(
+                            position.x + webcamWidth / 2,
+                            position.y + webcamHeight / 2,
+                            webcamWidth / 2,
+                            0,
+                            Math.PI * 2
+                        );
+                        break;
+                    case 'rounded':
+                        roundRect(ctx, position.x, position.y, webcamWidth, webcamHeight, 20);
+                        break;
+                    case 'square':
+                        ctx.rect(position.x, position.y, webcamWidth, webcamHeight);
+                        break;
+                }
+                ctx.clip();
+                
+                // Draw webcam video
+                // For circle, we need to scale the video to cover the circular area
+                if (state.settings.shape === 'circle') {
+                    // Get video dimensions
+                    const videoAspect = elements.webcamVideo.videoWidth / elements.webcamVideo.videoHeight;
+                    const targetAspect = 1; // Circle is square
                     
-                    // For circle shape, keep it square (equal width and height)
-                    // For other shapes, use aspect ratio
-                    if (state.settings.shape !== 'circle') {
-                        webcamHeight = webcamSize * (9/16); // Maintain 16:9 aspect ratio
+                    let drawWidth = webcamWidth;
+                    let drawHeight = webcamHeight;
+                    let drawX = position.x;
+                    let drawY = position.y;
+                    
+                    // Scale to cover the square area
+                    if (videoAspect > targetAspect) {
+                        // Video is wider, scale by height
+                        drawWidth = webcamHeight * videoAspect;
+                        drawX = position.x - (drawWidth - webcamWidth) / 2;
+                    } else {
+                        // Video is taller, scale by width
+                        drawHeight = webcamWidth / videoAspect;
+                        drawY = position.y - (drawHeight - webcamHeight) / 2;
                     }
                     
-                    const position = calculateWebcamPosition(webcamWidth, webcamHeight);
-                    
-                    // Save context state
-                    ctx.save();
-                    
-                    // Create clipping path based on shape
+                    ctx.drawImage(elements.webcamVideo, drawX, drawY, drawWidth, drawHeight);
+                } else {
+                    // For rectangle/rounded shapes, draw normally
+                    ctx.drawImage(elements.webcamVideo, position.x, position.y, webcamWidth, webcamHeight);
+                }
+                
+                // Restore context
+                ctx.restore();
+                
+                // Draw border if enabled
+                if (state.settings.webcamBorder) {
+                    ctx.strokeStyle = '#6366f1';
+                    ctx.lineWidth = 4;
                     ctx.beginPath();
                     switch (state.settings.shape) {
                         case 'circle':
+                            // Draw border slightly inside to prevent clipping
                             ctx.arc(
                                 position.x + webcamWidth / 2,
                                 position.y + webcamHeight / 2,
-                                webcamWidth / 2,
+                                (webcamWidth / 2) - 2, // Adjust for line width
                                 0,
                                 Math.PI * 2
                             );
                             break;
                         case 'rounded':
-                            roundRect(ctx, position.x, position.y, webcamWidth, webcamHeight, 20);
+                            roundRect(ctx, position.x + 2, position.y + 2, webcamWidth - 4, webcamHeight - 4, 20);
                             break;
                         case 'square':
-                            ctx.rect(position.x, position.y, webcamWidth, webcamHeight);
+                            ctx.rect(position.x + 2, position.y + 2, webcamWidth - 4, webcamHeight - 4);
                             break;
                     }
-                    ctx.clip();
-                    
-                    // Draw webcam video
-                    // For circle, we need to scale the video to cover the circular area
-                    if (state.settings.shape === 'circle') {
-                        // Get video dimensions
-                        const videoAspect = elements.webcamVideo.videoWidth / elements.webcamVideo.videoHeight;
-                        const targetAspect = 1; // Circle is square
-                        
-                        let drawWidth = webcamWidth;
-                        let drawHeight = webcamHeight;
-                        let drawX = position.x;
-                        let drawY = position.y;
-                        
-                        // Scale to cover the square area
-                        if (videoAspect > targetAspect) {
-                            // Video is wider, scale by height
-                            drawWidth = webcamHeight * videoAspect;
-                            drawX = position.x - (drawWidth - webcamWidth) / 2;
-                        } else {
-                            // Video is taller, scale by width
-                            drawHeight = webcamWidth / videoAspect;
-                            drawY = position.y - (drawHeight - webcamHeight) / 2;
-                        }
-                        
-                        ctx.drawImage(elements.webcamVideo, drawX, drawY, drawWidth, drawHeight);
-                    } else {
-                        // For rectangle/rounded shapes, draw normally
-                        ctx.drawImage(elements.webcamVideo, position.x, position.y, webcamWidth, webcamHeight);
-                    }
-                    
-                    // Restore context
-                    ctx.restore();
-                    
-                    // Draw border if enabled
-                    if (state.settings.webcamBorder) {
-                        ctx.strokeStyle = '#6366f1';
-                        ctx.lineWidth = 4;
-                        ctx.beginPath();
-                        switch (state.settings.shape) {
-                            case 'circle':
-                                // Draw border slightly inside to prevent clipping
-                                ctx.arc(
-                                    position.x + webcamWidth / 2,
-                                    position.y + webcamHeight / 2,
-                                    (webcamWidth / 2) - 2, // Adjust for line width
-                                    0,
-                                    Math.PI * 2
-                                );
-                                break;
-                            case 'rounded':
-                                roundRect(ctx, position.x + 2, position.y + 2, webcamWidth - 4, webcamHeight - 4, 20);
-                                break;
-                            case 'square':
-                                ctx.rect(position.x + 2, position.y + 2, webcamWidth - 4, webcamHeight - 4);
-                                break;
-                        }
-                        ctx.stroke();
-                    }
-                } catch (err) {
-                    console.error('Error drawing webcam:', err);
+                    ctx.stroke();
                 }
+            } catch (err) {
+                console.error('Error drawing webcam:', err);
             }
         }
-        
-        // Use setTimeout instead of requestAnimationFrame for consistent recording
-        // even when tab is not active
-        setTimeout(draw, 1000 / targetFPS);
     }
     
-    draw();
+    // Use setInterval for more consistent timing in background
+    // This runs more reliably than setTimeout chaining
+    state.compositingInterval = setInterval(draw, frameInterval);
 }
 
 // Calculate webcam position based on settings
@@ -479,6 +504,12 @@ async function togglePictureInPicture() {
 // Stop recording
 function stopRecording() {
     if (!state.mediaRecorder) return;
+    
+    // Stop the compositing interval
+    if (state.compositingInterval) {
+        clearInterval(state.compositingInterval);
+        state.compositingInterval = null;
+    }
     
     state.mediaRecorder.stop();
     stopTimer();
