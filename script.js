@@ -210,18 +210,28 @@ async function startRecording() {
         // Wait a bit for the canvas to have some frames
         await new Promise(resolve => setTimeout(resolve, 200));
         
-        // Create combined audio track
-        const audioTracks = [];
+        // Create a Web Audio API context for mixing tracks
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const destination = audioContext.createMediaStreamDestination();
+
+        // Mix system audio
         if (state.settings.systemAudio && state.screenStream.getAudioTracks().length > 0) {
-            audioTracks.push(...state.screenStream.getAudioTracks());
+            const systemStream = new MediaStream(state.screenStream.getAudioTracks());
+            const systemSource = audioContext.createMediaStreamSource(systemStream);
+            systemSource.connect(destination);
         }
-        if (state.settings.micAudio && state.audioStream) {
-            audioTracks.push(...state.audioStream.getAudioTracks());
+
+        // Mix microphone audio
+        if (state.settings.micAudio && state.audioStream && state.audioStream.getAudioTracks().length > 0) {
+            const micSource = audioContext.createMediaStreamSource(state.audioStream);
+            micSource.connect(destination);
         }
         
-        // Get canvas stream and add audio
+        // Get canvas stream and add mixed audio
         const canvasStream = elements.canvas.captureStream(30);
-        audioTracks.forEach(track => canvasStream.addTrack(track));
+        if (destination.stream.getAudioTracks().length > 0) {
+            canvasStream.addTrack(destination.stream.getAudioTracks()[0]);
+        }
         
         // Start recording with higher quality settings
         const options = {
